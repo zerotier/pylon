@@ -13,9 +13,6 @@ debug:
 	cd ext/libzt && ./build.sh host "debug"
 	$(CXX) -O3 $(INCLUDES) -DPYLON_DEBUG=1 -g -Wno-deprecated pylon.cpp -o pylon-debug ext/libzt/dist/*-host-debug/lib/libzt.a -Iext/libzt/include -fsanitize=address -DASAN_OPTIONS=symbolize=1
 
-relay:
-	$(CXX) -v -O3 -fno-rtti $(INCLUDES) -std=c++11 -frtti  -o tcp-proxy tcp-proxy.cpp
-
 clean:
 	rm -rf pylon pylon-*
 	rm -f *.o tcp-proxy *.dSYM
