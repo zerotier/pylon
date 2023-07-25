@@ -1,5 +1,6 @@
 CXX=$(shell which clang++ g++ c++ 2>/dev/null | head -n 1)
-INCLUDES?=-Iext/libzt/ext/ZeroTierOne/osdep
+INCLUDES?=-Iext/libzt/ext/ZeroTierOne/osdep -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include -Iext/libzt/ext/ZeroTierOne/ext-prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include
+
 
 release:
 	git submodule update --init
