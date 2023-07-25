@@ -82,20 +82,16 @@
 #define ZT_RESET "\x1B[0m"
 
 #define LOG_INFO(fmt, args...) fprintf(stderr, ZT_WHT "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_WARN(fmt, args...)  fprintf(stderr, ZT_YEL "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_ERROR(fmt, args...) fprintf(stderr, ZT_RED "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
 
 #ifdef PYLON_DEBUG
 #define LOG_DEBUG(fmt, args...) fprintf(stderr, ZT_WHT "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
-#define LOG_WARN(fmt, args...)  fprintf(stderr, ZT_YEL "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
-#define LOG_ERROR(fmt, args...) fprintf(stderr, ZT_RED "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
 #else
 #if defined(_WIN32)
 #define LOG_DEBUG(...)
-#define LOG_WARN(...)
-#define LOG_ERROR(...)
 #else
 #define LOG_DEBUG(fmt, args...)
-#define LOG_WARN(fmt, args...)
-#define LOG_ERROR(fmt, args...)
 #endif
 #endif
 
@@ -106,7 +102,7 @@ void* handle_proxy_conn(void* conn_ptr);
 struct zts_fused_socket_entry {
     int fd_zts;       // libzt non-OS socket
     int fd_app;       // end of socketpair that OS can read and write to
-    int fd_internal;   // end of socketpair that helper will read and write to
+    int fd_internal;  // end of socketpair that helper will read and write to
     int closed;       // Whether this fused socket has been closed
 };
 
@@ -163,7 +159,7 @@ void* fused_socket_tx_helper(void* ptr)
                 char rx_from_zt_buf[BUF_SIZE];
                 int r = zts_read(fse->fd_zts, rx_from_zt_buf, sizeof(rx_from_zt_buf));
                 if (r < 0) {
-                    LOG_ERROR("0x%p A <--- Z: from fused zt socket (%d)", conn, r);
+                    LOG_DEBUG("0x%p A <--- Z: from fused zt socket (%d)", conn, r);
                     perror("");
                     close(fse->fd_internal);
                     fse->closed = 1;
@@ -181,7 +177,7 @@ void* fused_socket_tx_helper(void* ptr)
             }
         }
     }
-    LOG_WARN("0x%p A <--- Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+    LOG_DEBUG("0x%p A <--- Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
     return NULL;
 }
 
@@ -221,7 +217,7 @@ void* fused_socket_rx_helper(void* ptr)
                 char rx_from_client_buf[BUF_SIZE];
                 int r = read(fse->fd_internal, rx_from_client_buf, sizeof(rx_from_client_buf));
                 if (r < 0) {
-                    LOG_ERROR("0x%p A ---> Z: from fused client socket (%d)", conn, r);
+                    LOG_DEBUG("0x%p A ---> Z: from fused client socket (%d)", conn, r);
                     perror("");
                 }
                 if (r > 0) {
@@ -239,7 +235,7 @@ void* fused_socket_rx_helper(void* ptr)
             }
         }
     }
-    LOG_WARN("0x%p A ---> Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+    LOG_DEBUG("0x%p A ---> Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
     return NULL;
 }
 
