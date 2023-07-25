@@ -4,8 +4,6 @@ INCLUDES?=-Iext/libzt/ext/ZeroTierOne/osdep
 release:
 	git submodule update --init
 	git -C ext/libzt submodule update --init
-	-cp libzt.patch ext/libzt
-	-git -C ext/libzt apply --reject libzt.patch
 	cd ext/libzt && ./build.sh host "release"
 	$(CXX) -O3 $(INCLUDES) -Wno-deprecated pylon.cpp -o pylon ext/libzt/dist/*-host-release/lib/libzt.a -Iext/libzt/include
 
