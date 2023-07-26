@@ -1,12 +1,15 @@
 CXX=$(shell which clang++ g++ c++ 2>/dev/null | head -n 1)
 INCLUDES?=-Iext/libzt/ext/ZeroTierOne/osdep -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include -Iext/libzt/ext/ZeroTierOne/ext-prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include
 
+docker-release:
+	DOCKER_BUILDKIT=1 docker build --target=release --tag=pylon:latest .
+	docker cp `docker create --rm pylon`:/usr/local/bin/pylon .
 
 release:
 	git submodule update --init
 	git -C ext/libzt submodule update --init
 	cd ext/libzt && ./build.sh host "release"
-	$(CXX) -O3 $(INCLUDES) -Wno-deprecated -std=c++11 pylon.cpp -o pylon ext/libzt/dist/*-host-release/lib/libzt.a -Iext/libzt/include
+	$(CXX) -O3 $(INCLUDES) -Wno-deprecated -std=c++11 -static pylon.cpp -o pylon ext/libzt/dist/*-host-release/lib/libzt.a -Iext/libzt/include
 
 debug:
 	git submodule update --init

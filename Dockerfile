@@ -1,13 +1,13 @@
-FROM debian:bookworm-slim as build
+FROM debian:bookworm-slim AS os-updated
 
+RUN apt-get update -qq && apt-get install -y git make cmake clang
+
+FROM os-updated AS build
 COPY . /code
 WORKDIR /code
-
-RUN apt-get update -qq && apt-get install -y \
-  build-essential git make pkg-config cmake libssl-dev
-
 RUN make release
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS release
 COPY --from=build /code/pylon /usr/local/bin
+RUN apt-get clean
 ENTRYPOINT [ "/usr/local/bin/pylon" ]
