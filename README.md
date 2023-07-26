@@ -1,6 +1,8 @@
 # ZeroTier Pylon
 Proxy layer 5 traffic from your apps to and from your ZeroTier virtual network without installing ZeroTier and without bringing up any new network interfaces.
 
+![Build](https://github.com/zerotier/pylon/actions/workflows/build.yml/badge.svg?branch=main)
+
 ## Build
 
 Currently the build process will pull a submodule (which itself pulls submodules), build libzt there, and then link pylon against the resultant `libzt.a` static library. Requires `clang`, and `cmake` to build.
