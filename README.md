@@ -6,14 +6,7 @@ Proxy layer 5 traffic from your apps to and from your ZeroTier virtual network w
 Currently the build process will pull a submodule (which itself pulls submodules), build libzt there, and then link pylon against the resultant `libzt.a` static library. Requires `clang`, and `cmake` to build.
 
 ```
-make release|debug|clean
-```
-
-You'll get:
-
-```
-pylon
-pylon-debug
+make
 ```
 
 ## Usage
@@ -79,6 +72,18 @@ Attempt a proxied HTTP GET:
 
 ```
 curl --verbose --output output.txt 172.28.128.86:8000 --proxy socks5://127.0.0.1:1080
+```
+
+## Debugging
+
+```
+make debug|clean
+```
+
+You'll get:
+
+```
+pylon-debug
 ```
 
 ## Limitations
