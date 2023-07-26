@@ -70,7 +70,7 @@
 #define MAX_PROXY_CONNECTIONS 256
 #define BUF_SIZE			  (16 * 1024)
 #define SLEEP_INTERVAL		  5000
-#define POLL_TIMEOUT_MS		  (3 * 1000)
+#define POLL_TIMEOUT_MS		  (500)
 
 #define ZT_FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
@@ -101,25 +101,24 @@ ZeroTier::Mutex conn_m;
 
 void* handle_proxy_conn(void* conn_ptr);
 
-struct zts_fused_socket_entry {
-  int fd_zts;		   // libzt non-OS socket
-  int fd_app;		   // end of socketpair that OS can read and write to
-  int fd_internal;   // end of socketpair that helper will read and write to
-  int closed;		   // Whether this fused socket has been closed
-};
-
 enum ConnectDirection { ToZeroTierNetwork, ToLocalAreaNetwork };
 
 struct proxy_connection {
   int state;
-  int fd_client;
-  int fd_lan;
-  struct zts_fused_socket_entry fse;
+
   pthread_t handler;
   ConnectDirection direction;
+
+  int fused_closed;	// Whether this fused socket has been closed
   bool shouldStop;
+
   bool rxStopped;
   bool txStopped;
+
+  int fd_lan;
+  int fd_zan;	  // end of socketpair that OS can read and write to (data on this socket is forwarded to and from the ZAN)
+  int fd_zts;	  // libzt non-OS socket
+  int fd_int;	  // end of socketpair that helper will read and write to
 };
 
 struct proxy_connection connections[MAX_PROXY_CONNECTIONS];
@@ -130,13 +129,12 @@ pthread_t threads[MAX_PROXY_CONNECTIONS];
 void* fused_socket_tx_helper(void* ptr)
 {
   struct proxy_connection* conn = (struct proxy_connection*)ptr;
-  struct zts_fused_socket_entry* fse = (struct zts_fused_socket_entry*)&conn->fse;
-  while (! conn->shouldStop && ! fse->closed) {
-    LOG_DEBUG("0x%p A <--- Z: (%2d, %2d, %2d): polling", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+  while (! conn->shouldStop && ! conn->fused_closed) {
+    LOG_DEBUG("0x%p A <--- Z: (%2d, %2d, %2d): polling", conn, conn->fd_zan, conn->fd_int, conn->fd_zts);
     struct zts_pollfd fds[1];
     int nfds = 1;
     memset(fds, 0, sizeof(fds));
-    fds[0].fd = conn->fse.fd_zts;
+    fds[0].fd = conn->fd_zts;
     fds[0].events = ZTS_POLLIN;
 
     int rc = zts_bsd_poll(fds, nfds, POLL_TIMEOUT_MS);
@@ -164,19 +162,19 @@ void* fused_socket_tx_helper(void* ptr)
         usleep(SLEEP_INTERVAL);
         break;
       }
-      if (fds[i].fd == conn->fse.fd_zts) {
+      if (fds[i].fd == conn->fd_zts) {
         usleep(SLEEP_INTERVAL);
         LOG_DEBUG("0x%p A <--- Z: reading from fused zt socket", conn);
         char rx_from_zt_buf[BUF_SIZE];
-        int r = zts_read(conn->fse.fd_zts, rx_from_zt_buf, sizeof(rx_from_zt_buf));
+        int r = zts_read(conn->fd_zts, rx_from_zt_buf, sizeof(rx_from_zt_buf));
         if (r < 0) {
           LOG_DEBUG("0x%p A <--- Z: from fused zt socket (%d)", conn, r);
           // perror("");
-          close(fse->fd_internal);
-          fse->closed = 1;
+          close(conn->fd_int);
+          conn->fused_closed = 1;
         }
         if (r > 0) {
-          int w = write(fse->fd_internal, rx_from_zt_buf, r);
+          int w = write(conn->fd_int, rx_from_zt_buf, r);
           if (w < 0) {
             LOG_ERROR("0x%p A <--- Z: to zt socket", conn);
             // perror("");
@@ -189,7 +187,7 @@ void* fused_socket_tx_helper(void* ptr)
     }
   }
   conn->txStopped = true;
-  LOG_DEBUG("0x%p A <--- Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+  LOG_DEBUG("0x%p A <--- Z: (%2d, %2d, %2d): stopping thread", conn, conn->fd_zan, conn->fd_int, conn->fd_zts);
   return NULL;
 }
 
@@ -198,14 +196,13 @@ void* fused_socket_tx_helper(void* ptr)
 void* fused_socket_rx_helper(void* ptr)
 {
   struct proxy_connection* conn = (struct proxy_connection*)ptr;
-  struct zts_fused_socket_entry* fse = (struct zts_fused_socket_entry*)&conn->fse;
-  while (! conn->shouldStop && ! fse->closed) {
-    LOG_DEBUG("0x%p A ---> Z: (%2d, %2d, %2d): polling", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+  while (! conn->shouldStop && ! conn->fused_closed) {
+    LOG_DEBUG("0x%p A ---> Z: (%2d, %2d, %2d): polling", conn, conn->fd_zan, conn->fd_int, conn->fd_zts);
     struct pollfd fds[1];
     int nfds = 1;
     memset(fds, 0, sizeof(fds));
-    fds[0].fd = fse->fd_internal;
-    fds[0].events = POLLIN | POLLOUT;
+    fds[0].fd = conn->fd_int;
+    fds[0].events = POLLIN;
     int rc = poll(fds, nfds, POLL_TIMEOUT_MS);
 
     if (rc < 0) {
@@ -225,22 +222,22 @@ void* fused_socket_rx_helper(void* ptr)
       if (fds[i].revents != POLLIN) {
         usleep(SLEEP_INTERVAL);
       }
-      if (fds[i].fd == fse->fd_internal) {
+      if (fds[i].fd == conn->fd_int) {
         usleep(SLEEP_INTERVAL);
         LOG_DEBUG("0x%p A ---> Z:  reading from fused client socket", conn);
         char rx_from_client_buf[BUF_SIZE];
-        int r = read(fse->fd_internal, rx_from_client_buf, sizeof(rx_from_client_buf));
+        int r = read(conn->fd_int, rx_from_client_buf, sizeof(rx_from_client_buf));
         if (r < 0) {
           LOG_DEBUG("0x%p A ---> Z: from fused client socket (%d)", conn, r);
           // perror("");
         }
         if (r > 0) {
-          int w = zts_write(fse->fd_zts, rx_from_client_buf, r);
+          int w = zts_write(conn->fd_zts, rx_from_client_buf, r);
           if (w < 0) {
             LOG_ERROR("0x%p A ---> Z: to zt socket", conn);
             // perror("");
-            close(fse->fd_internal);
-            fse->closed = 1;
+            close(conn->fd_int);
+            conn->fused_closed = 1;
           }
           if (w > 0) {
             LOG_DEBUG("0x%p A ---> Z: wrote %d", conn, w);
@@ -250,14 +247,14 @@ void* fused_socket_rx_helper(void* ptr)
     }
   }
   conn->rxStopped = true;
-  LOG_DEBUG("0x%p A ---> Z: (%2d, %2d, %2d): stopping thread", conn, fse->fd_app, fse->fd_internal, fse->fd_zts);
+  LOG_DEBUG("0x%p A ---> Z: (%2d, %2d, %2d): stopping thread", conn, conn->fd_zan, conn->fd_int, conn->fd_zts);
   return NULL;
 }
 
-int zts_fused_socket(int fd_pre_existing, struct zts_fused_socket_entry* fse, struct proxy_connection* conn)
+int zts_fused_socket(int fd_pre_existing, struct proxy_connection* conn)
 {
-  if (! fse) {
-    LOG_DEBUG("invalid fse provided");
+  if (! conn) {
+    LOG_ERROR("invalid connection object provided");
     return -1;
   }
 
@@ -269,25 +266,24 @@ int zts_fused_socket(int fd_pre_existing, struct zts_fused_socket_entry* fse, st
   else {
     fd_zts = zts_socket(AF_INET, SOCK_STREAM, 0);
   }
-
   // Create zt socket
   if (fd_zts < 0) {
-    LOG_DEBUG("error creating zt socket");
+    LOG_ERROR("Failed to create zt socket");
     return fd_zts;
   }
-  fse->fd_zts = fd_zts;
+  conn->fd_zts = fd_zts;
   // Create socket pair
   int sockets[2];
   int err = socketpair(AF_UNIX, SOCK_STREAM, 0, sockets);
   if (err < 0) {
-    perror("socketpair");
+    LOG_ERROR("Failed to create socket pair");
     return err;
   }
-  fse->fd_app = sockets[0];
-  fse->fd_internal = sockets[1];
-  fse->closed = 0;
+  conn->fd_zan = sockets[0];
+  conn->fd_int = sockets[1];
+  conn->fused_closed = 0;
 
-  LOG_DEBUG("fused socket (%d) : [%d:%d <---> %d]", fse->fd_app, fse->fd_app, fse->fd_internal, fse->fd_zts);
+  LOG_DEBUG("fused socket (%d) : [%d:%d <---> %d]", conn->fd_zan, conn->fd_zan, conn->fd_int, conn->fd_zts);
 
   pthread_t tx_thread;
   pthread_create(&tx_thread, NULL, fused_socket_tx_helper, (void*)conn);
@@ -308,7 +304,6 @@ void* get_in_addr(struct sockaddr* sa)
 int add_proxy_client_conn(int fd_socks_client, ConnectDirection dir)
 {
   conn_m.lock();
-
   // Find empty connection slot for new proxied connection
   int empty_slot = MAX_PROXY_CONNECTIONS;
   for (int i = 0; i < MAX_PROXY_CONNECTIONS; i++) {
@@ -323,16 +318,19 @@ int add_proxy_client_conn(int fd_socks_client, ConnectDirection dir)
     return -1;	 //
   }
   LOG_INFO("0x%p New connection added to slot %d", (void*)&connections[empty_slot], empty_slot);
-  connections[empty_slot].fd_client = fd_socks_client;
+  if (dir == ConnectDirection::ToZeroTierNetwork) {
+    connections[empty_slot].fd_lan = fd_socks_client;
+  }
+  if (dir == ConnectDirection::ToLocalAreaNetwork) {
+    connections[empty_slot].fd_zan = fd_socks_client;
+  }
   connections[empty_slot].state = SOCKS_OPEN;
   connections[empty_slot].direction = dir;
   connections[empty_slot].shouldStop = false;
   connections[empty_slot].rxStopped = false;
   connections[empty_slot].txStopped = false;
   pthread_create(&connections[empty_slot].handler, NULL, handle_proxy_conn, (void*)&connections[empty_slot]);
-
   conn_m.unlock();
-
   return 0;
 }
 
@@ -474,13 +472,13 @@ void* handle_proxy_conn(void* conn_ptr)
   }
   if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
     LOG_INFO("0x%p Connection request from ZeroTier network to LAN", (void*)conn);
-    zts_fused_socket(conn->fd_client, &conn->fse, conn);
+    zts_fused_socket(conn->fd_zan, conn);
   }
 
   bool _run = true;
 
   while (_run) {
-    if (conn->fse.closed && conn->state == SOCKS_COMPLETE) {
+    if (conn->fused_closed && conn->state == SOCKS_COMPLETE) {
       LOG_WARN("0x%p shutting down", conn);
       break;
     }
@@ -497,12 +495,14 @@ void* handle_proxy_conn(void* conn_ptr)
     // Poll OS client socket, and OS socketpair end
 
     if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-      fds[0].fd = conn->fd_client;
+      fds[0].fd = conn->fd_lan;
       fds[0].events = POLLIN;
+      LOG_DEBUG("0x%p poll (fd_lan:%2d)", conn, fds[0].fd);
       if (conn->state == SOCKS_COMPLETE) {
-        fds[1].fd = conn->fse.fd_app;
+        fds[1].fd = conn->fd_zan;
         fds[1].events = POLLIN;
         nfds = 2;
+        LOG_DEBUG("0x%p poll (fd_zan:%2d)", conn, fds[1].fd);
       }
       LOG_DEBUG("0x%p polling (%d) sockets", conn, nfds);
       int rc = poll(fds, nfds, POLL_TIMEOUT_MS);
@@ -518,14 +518,15 @@ void* handle_proxy_conn(void* conn_ptr)
     // Poll on OS socketpair end and LAN socket
 
     if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-      fds[0].fd = conn->fse.fd_app;
+      fds[0].fd = conn->fd_zan;
       fds[0].events = POLLIN;
+      LOG_DEBUG("0x%p poll (fd_zan:%2d)", conn, fds[0].fd);
       if (conn->state == SOCKS_COMPLETE) {
         fds[1].fd = conn->fd_lan;
         fds[1].events = POLLIN;
         nfds = 2;
+        LOG_DEBUG("0x%p poll (fd_lan:%2d)", conn, fds[1].fd);
       }
-      LOG_DEBUG("0x%p polling (%d) sockets", conn, nfds);
       int rc = poll(fds, nfds, POLL_TIMEOUT_MS);
       if (rc < 0) {
         LOG_ERROR("0x%p poll failed", conn);
@@ -550,14 +551,14 @@ void* handle_proxy_conn(void* conn_ptr)
 
       // Read data from client
 
-      if (fds[i].fd == conn->fd_client || fds[i].fd == conn->fse.fd_app) {
-        if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-          LOG_DEBUG("0x%p RX reading from client socket (OS:%d)", conn, conn->fd_client);
-          rx_len_client = read(conn->fd_client, rx_from_client_buf, sizeof(rx_from_client_buf));
+      if ((fds[i].fd == conn->fd_lan && conn->direction == ConnectDirection::ToZeroTierNetwork) || (fds[i].fd == conn->fd_zan && conn->direction == ConnectDirection::ToLocalAreaNetwork)) {
+        if (fds[i].fd == conn->fd_lan && conn->direction == ConnectDirection::ToZeroTierNetwork) {
+          LOG_DEBUG("0x%p RX reading from client socket (OS:%d)", conn, conn->fd_lan);
+          rx_len_client = read(conn->fd_lan, rx_from_client_buf, sizeof(rx_from_client_buf));
         }
-        if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-          LOG_DEBUG("0x%p RX reading from client socket (OS:%d)", conn, conn->fd_client);
-          rx_len_client = read( conn->fse.fd_app, rx_from_client_buf, sizeof(rx_from_client_buf));
+        if (fds[i].fd == conn->fd_zan && conn->direction == ConnectDirection::ToLocalAreaNetwork) {
+          LOG_DEBUG("0x%p RX reading from client socket (OS:%d)", conn, conn->fd_zan);
+          rx_len_client = read(conn->fd_zan, rx_from_client_buf, sizeof(rx_from_client_buf));
         }
         if (rx_len_client < 0) {
           LOG_ERROR("0x%p RX read (%d) from client", conn, rx_len_client);
@@ -576,12 +577,12 @@ void* handle_proxy_conn(void* conn_ptr)
       // Read data from resource
 
       if (conn->state == SOCKS_COMPLETE) {
-        if (fds[i].fd == conn->fse.fd_app) {
-          if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-            LOG_DEBUG("0x%p RX reading from resource socket (OS:%d)", conn, conn->fse.fd_app);
-            rx_len_resource = read(conn->fse.fd_app, rx_from_zt_to_client_buf, sizeof(rx_from_zt_to_client_buf));
+        if ((fds[i].fd == conn->fd_zan && conn->direction == ConnectDirection::ToZeroTierNetwork) || (fds[i].fd == conn->fd_lan && conn->direction == ConnectDirection::ToLocalAreaNetwork)) {
+          if (fds[i].fd == conn->fd_zan && conn->direction == ConnectDirection::ToZeroTierNetwork) {
+            LOG_DEBUG("0x%p RX reading from resource socket (OS:%d)", conn, conn->fd_zan);
+            rx_len_resource = read(conn->fd_zan, rx_from_zt_to_client_buf, sizeof(rx_from_zt_to_client_buf));
           }
-          if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
+          if (fds[i].fd == conn->fd_lan && conn->direction == ConnectDirection::ToLocalAreaNetwork) {
             LOG_DEBUG("0x%p RX reading from resource socket (OS:%d)", conn, conn->fd_lan);
             rx_len_resource = read(conn->fd_lan, rx_from_zt_to_client_buf, sizeof(rx_from_zt_to_client_buf));
           }
@@ -605,8 +606,8 @@ void* handle_proxy_conn(void* conn_ptr)
       if (rx_len_client > 0) {
         int tx_len_to_resource = -1;
         if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-          LOG_DEBUG("0x%p TX writing (%d) from client to resource (OS:%d)", conn, rx_len_client, conn->fse.fd_app);
-          tx_len_to_resource = write(conn->fse.fd_app, rx_from_client_buf, rx_len_client);
+          LOG_DEBUG("0x%p TX writing (%d) from client to resource (OS:%d)", conn, rx_len_client, conn->fd_zan);
+          tx_len_to_resource = write(conn->fd_zan, rx_from_client_buf, rx_len_client);
         }
         if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
           LOG_DEBUG("0x%p TX writing (%d) from client to resource (OS:%d)", conn, rx_len_client, conn->fd_lan);
@@ -625,12 +626,12 @@ void* handle_proxy_conn(void* conn_ptr)
       if (rx_len_resource > 0) {
         int tx_len_to_client = -1;
         if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-          LOG_DEBUG("0x%p TX writing (%d) from resource to client (OS:%d)", conn, rx_len_resource, conn->fd_client);
-          tx_len_to_client = write(conn->fd_client, rx_from_zt_to_client_buf, rx_len_resource);
+          LOG_DEBUG("0x%p TX writing (%d) from resource to client (OS:%d)", conn, rx_len_resource, conn->fd_lan);
+          tx_len_to_client = write(conn->fd_lan, rx_from_zt_to_client_buf, rx_len_resource);
         }
         if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-          LOG_DEBUG("0x%p TX writing (%d) from resource to client (ZT:%d)", conn, rx_len_resource, conn->fd_client);
-          tx_len_to_client = zts_write(conn->fd_client, rx_from_zt_to_client_buf, rx_len_resource);
+          LOG_DEBUG("0x%p TX writing (%d) from resource to client (ZT:%d)", conn, rx_len_resource, conn->fd_zan);
+          tx_len_to_client = write(conn->fd_zan, rx_from_zt_to_client_buf, rx_len_resource);
         }
         if (tx_len_to_client < 0) {
           LOG_ERROR("0x%p TX wrote (%d) to client", conn, tx_len_to_client);
@@ -670,10 +671,10 @@ void* handle_proxy_conn(void* conn_ptr)
         reply[IDX_METHOD] = supportedMethod;
 
         if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-          send(conn->fd_client, reply, sizeof(reply), 0);
+          send(conn->fd_lan, reply, sizeof(reply), 0);
         }
         if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-          zts_send(conn->fd_client, reply, sizeof(reply), 0);
+          send(conn->fd_zan, reply, sizeof(reply), 0);
         }
         conn->state = SOCKS_CONNECT_INIT;
         continue;
@@ -707,18 +708,17 @@ void* handle_proxy_conn(void* conn_ptr)
             inet_ntop(AF_INET, &raw_addr, (char*)ipstr, INET_ADDRSTRLEN);
             unsigned short port = 0;
             memcpy(&port, &rx_from_client_buf[8], 2);
-            memset(&conn->fse, 0, sizeof(conn->fse));
 
             int err = -1;
 
             // Connect to resource on ZeroTier network
 
             if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-              zts_fused_socket(INVALID_SOCKET_FD, &conn->fse, conn);
+              zts_fused_socket(INVALID_SOCKET_FD, conn);
               port = ntohs(port);
               LOG_DEBUG("0x%p connecting via zt to: %s:%d", conn, ipstr, port);
-              err = zts_connect(conn->fse.fd_zts, ipstr, port, CONNECT_TIMEOUT_S);
-              LOG_DEBUG("0x%p conn->fd_zts=(ZT:%d)", conn, conn->fse.fd_zts);
+              err = zts_connect(conn->fd_zts, ipstr, port, CONNECT_TIMEOUT_S);
+              LOG_DEBUG("0x%p conn->fd_zts=(ZT:%d)", conn, conn->fd_zts);
             }
 
             // Connect to resource on LAN
@@ -751,16 +751,16 @@ void* handle_proxy_conn(void* conn_ptr)
 
                 o  VER    protocol version: X'05'
                 o  REP    Reply field:
-                  o  X'00' succeeded
-                  o  X'01' general SOCKS server failure
-                  o  X'02' connection not allowed by ruleset
-                  o  X'03' Network unreachable
-                  o  X'04' Host unreachable
-                  o  X'05' Connection refused
-                  o  X'06' TTL expired
-                  o  X'07' Command not supported
-                  o  X'08' Address type not supported
-                  o  X'09' to X'FF' unassigned
+                o  X'00' succeeded
+                o  X'01' general SOCKS server failure
+                o  X'02' connection not allowed by ruleset
+                o  X'03' Network unreachable
+                o  X'04' Host unreachable
+                o  X'05' Connection refused
+                o  X'06' TTL expired
+                o  X'07' Command not supported
+                o  X'08' Address type not supported
+                o  X'09' to X'FF' unassigned
                 o  RSV    RESERVED
                 o  ATYP   address type of following address
               */
@@ -779,10 +779,10 @@ void* handle_proxy_conn(void* conn_ptr)
 
               int reply_len = -1;
               if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-                reply_len = send(conn->fd_client, replybuf, REPLY_LEN, 0);
+                reply_len = send(conn->fd_lan, replybuf, REPLY_LEN, 0);
               }
               if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-                reply_len = zts_send(conn->fd_client, replybuf, REPLY_LEN, 0);
+                reply_len = send(conn->fd_zan, replybuf, REPLY_LEN, 0);
               }
               LOG_DEBUG("0x%p SOCKS Replying to client with (%d) bytes", conn, reply_len);
             }
@@ -795,18 +795,18 @@ void* handle_proxy_conn(void* conn_ptr)
   conn_m.lock();
   conn->shouldStop = true;
   conn->state = SOCKS_OPEN;
+  LOG_WARN("0x%p waiting for IO threads to stop", conn);
   while (1) {
-    LOG_WARN("0x%p waiting for IO threads to stop", conn);
-    sleep(1);
+    usleep(SLEEP_INTERVAL);
     if (conn->txStopped && conn->rxStopped) {
       break;
     }
   }
   if (conn->direction == ConnectDirection::ToZeroTierNetwork) {
-    close(conn->fd_client);
+    close(conn->fd_lan);
   }
   if (conn->direction == ConnectDirection::ToLocalAreaNetwork) {
-    zts_close(conn->fd_client);
+    close(conn->fd_zan);
   }
   conn_m.unlock();
   return NULL;
