@@ -6,13 +6,13 @@ release:
 	git submodule update --init
 	git -C ext/libzt submodule update --init
 	cd ext/libzt && ./build.sh host "release"
-	$(CXX) -O3 $(INCLUDES) -Wno-deprecated pylon.cpp -o pylon ext/libzt/dist/*-host-release/lib/libzt.a -Iext/libzt/include
+	$(CXX) -O3 $(INCLUDES) -Wno-deprecated -std=c++11 pylon.cpp -o pylon ext/libzt/dist/*-host-release/lib/libzt.a -Iext/libzt/include
 
 debug:
 	git submodule update --init
 	git -C ext/libzt submodule update --init
 	cd ext/libzt && ./build.sh host "debug"
-	$(CXX) -O3 $(INCLUDES) -DPYLON_DEBUG=1 -g -Wno-deprecated pylon.cpp -o pylon-debug ext/libzt/dist/*-host-debug/lib/libzt.a -Iext/libzt/include
+	$(CXX) -O3 $(INCLUDES) -DPYLON_DEBUG=1 -g -Wno-deprecated -std=c++11 pylon.cpp -o pylon-debug ext/libzt/dist/*-host-debug/lib/libzt.a -Iext/libzt/include
 	#-fsanitize=address -DASAN_OPTIONS=symbolize=1
 
 clean:
