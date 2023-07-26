@@ -9,8 +9,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+        target: [debug, release]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout the repository
+      - name: Build ${{ matrix.os }} - ${{ matrix.target }}
         uses: actions/checkout@v3.5.3
-      - run: make
+      - run: make ${{ matrix.target }}
