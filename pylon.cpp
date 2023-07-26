@@ -83,12 +83,12 @@
 #define ZT_WHT	 "\x1B[37m"
 #define ZT_RESET "\x1B[0m"
 
-#define LOG_INFO(fmt, args...)	fprintf(stderr, ZT_WHT "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
-#define LOG_WARN(fmt, args...)	fprintf(stderr, ZT_YEL "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
-#define LOG_ERROR(fmt, args...) fprintf(stderr, ZT_RED "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_INFO(fmt, args...)	fprintf(stderr, ZT_WHT "%17s:%06d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_WARN(fmt, args...)	fprintf(stderr, ZT_YEL "%17s:%06d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_ERROR(fmt, args...) fprintf(stderr, ZT_RED "%17s:%06d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
 
 #ifdef PYLON_DEBUG
-#define LOG_DEBUG(fmt, args...) fprintf(stderr, ZT_WHT "%17s:%5d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
+#define LOG_DEBUG(fmt, args...) fprintf(stderr, ZT_WHT "%17s:%06d:%25s: " fmt "\n" ZT_RESET, ZT_FILENAME, __LINE__, __FUNCTION__, ##args)
 #else
 #if defined(_WIN32)
 #define LOG_DEBUG(...)
