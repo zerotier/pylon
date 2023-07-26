@@ -1,0 +1,16 @@
+name: Build
+on:
+  push:
+    paths-ignore::
+      - "README.md"
+
+jobs:
+  build_matrix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3.5.3
+      - run: make
