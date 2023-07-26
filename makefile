@@ -12,7 +12,8 @@ debug:
 	git submodule update --init
 	git -C ext/libzt submodule update --init
 	cd ext/libzt && ./build.sh host "debug"
-	$(CXX) -O3 $(INCLUDES) -DPYLON_DEBUG=1 -g -Wno-deprecated pylon.cpp -o pylon-debug ext/libzt/dist/*-host-debug/lib/libzt.a -Iext/libzt/include -fsanitize=address -DASAN_OPTIONS=symbolize=1
+	$(CXX) -O3 $(INCLUDES) -DPYLON_DEBUG=1 -g -Wno-deprecated pylon.cpp -o pylon-debug ext/libzt/dist/*-host-debug/lib/libzt.a -Iext/libzt/include
+	#-fsanitize=address -DASAN_OPTIONS=symbolize=1
 
 clean:
 	rm -rf pylon pylon-*
