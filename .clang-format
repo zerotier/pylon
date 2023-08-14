@@ -57,7 +57,7 @@ SpacesInCStyleCastParentheses: 'false'
 SpacesInContainerLiterals: 'true'
 SpacesInParentheses: 'false'
 SpacesInSquareBrackets: 'false'
-UseTab: 'Always'
+UseTab: 'Never'
 
 ---
 Language: Cpp
@@ -72,4 +72,3 @@ ColumnLimit: '240'
 ---
 Language: CSharp
 ColumnLimit: '240'
-...
