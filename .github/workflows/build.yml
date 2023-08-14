@@ -5,7 +5,16 @@ on:
       - "README.md"
 
 jobs:
+  lint:
+    name: Run lint checks
+    runs-on: [ ubuntu-latest ]
+    steps:
+      - name: Lint
+        uses: actions/checkout@v3.5.3
+      - run: make lint
+
   build_matrix:
+    needs: lint
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]

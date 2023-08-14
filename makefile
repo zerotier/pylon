@@ -19,5 +19,8 @@ clean:
 	rm -rf pylon pylon-*
 	rm -f *.o tcp-proxy *.dSYM
 
+lint:
+	clang-format -i pylon.cpp -style file --dry-run --Werror || (echo "\nPlease run make fmt and resubmit\n" && exit 1)
+
 fmt:
 	clang-format -i pylon.cpp -style file

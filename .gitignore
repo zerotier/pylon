@@ -1,3 +1,4 @@
 /pylon
 /pylon-debug
 *.dSYM/
+/.DS_Store
