@@ -1,11 +1,12 @@
 # ZeroTier Pylon
-Proxy layer 5 traffic from your apps to and from your ZeroTier virtual network without installing ZeroTier and without bringing up any new network interfaces.
+
+Easily tunnel traffic to and from your LAN and ZeroTier Virtual Network using an SOCKS5 proxy (includes an optional TCP relay for use behind difficult NATs)
 
 ![Build](https://github.com/zerotier/pylon/actions/workflows/build.yml/badge.svg?branch=main)
 
 ## Build
 
-Currently the build process will pull a submodule (which itself pulls submodules), build libzt there, and then link pylon against the resultant `libzt.a` static library. Requires `clang`, and `cmake` to build.
+Currently you must build it and distribute it to your server manually. The build process will pull a submodule (which itself pulls submodules), build libzt there, and then link pylon against the resultant `libzt.a` static library. Requires `clang`, and `cmake` to build.
 
 ```
 make
@@ -17,7 +18,7 @@ Pylon can be run as one of two personalities that can work alone or together dep
 
 | Name  | What do | Is this a ZeroTier Node? |
 | ------------- | ------------- | - |
-| `pylon refract`  | This bridges traffic to and from your LAN | Yes | 
+| `pylon refract`  | This bridges traffic to and from your LAN | Yes |
 | `pylon reflect` | This relays traffic over `TCP/443`  | No |
 
 In many cases a single `refract` instance is enough to bridge devices onto your ZeroTier network. However, if you're behind some tricky NAT you might need to set up a `reflect` instance on a machine with a static IP for your `refract` instance to use.
@@ -37,7 +38,7 @@ By default Pylon will chose a random port to send ZeroTier traffic over, but If 
 export ZT_PYLON_WHITELISTED_PORT=4545
 ```
 
-### Run `refract` instance
+### `refract` (SOCKS5 Proxy)
 
 Run proxy service to listen for app traffic locally on `127.0.0.1:1080`:
 
@@ -47,9 +48,9 @@ Run proxy service to listen for app traffic locally on `127.0.0.1:1080`:
 
 You can also listen on `0.0.0.0`.
 
-### Run `reflect` instance
+### `reflect` (Dumb TCP Relay)
 
-If you have a tricky NAT situation and can allow `TCP/443`, you can specify a relay on a machine with a static IP like so:
+If you have a tricky NAT situation and can allow `TCP/443`, you can specify a relay on a machine with a static IP. To reduce latency, the tcp-relay should be as close as possible to the nodes it is serving. A datacenter in the same city or the LAN would be ideal.
 
 ```
 ./pylon reflect
@@ -60,6 +61,36 @@ Then tell your pylon instances to use that to proxy traffic:
 ```
 ./pylon refract b84ac5c40a2339c9 --listen-addr 0.0.0.0 --listen-port 1080 --relay-addr 0.0.0.0 --relay-port 443
 ```
+
+Note: a `reflect` instance is just a [tcp-proxy](https://github.com/zerotier/ZeroTierOne/tree/dev/tcp-proxy) and can be used by a regular ZeroTier client just the same. Expand the following instructions for more info:
+
+<details>
+  <summary>Instructions for use with regular ZeroTier client</summary>
+
+### Point your node at it
+
+The default tcp relay is at `204.80.128.1/443` -an anycast address.
+
+#### Option 1 - local.conf configuration
+See [Service docs](https://github.com/zerotier/ZeroTierOne/blob/e0acccc3c918b59678033e585b31eb000c68fdf2/service/README.md) for more info on local.conf
+`{ "settings": { "tcpFallbackRelay": "1.2.3.4/443", "forceTcpRelay": true  } }`
+
+In this example, `forceTcpRelay` is enabled. This is helpful for testing or if you know you'll need tcp relay. It takes a few minutes for zerotier-one to realize it needs to relay otherwise.
+
+#### Option 2 - redirect 204.80.128.1 to your own IP
+
+If you are the admin of the network that is blocking ZeroTier UDP, you can transparently redirect 204.80.128.1 to one of your IP addresses. Users won't need to edit their local client configuration.
+
+Configuring this in your Enterprise Firewall is left as an exercise to the reader.
+
+Here is an iptables example for illustrative purposes:
+
+``` shell
+-A PREROUTING -p tcp -d 204.80.128.1 --dport 443 -j DNAT --to-destination 1.2.3.4
+-A POSTROUTING -p tcp -d 1.2.3.4 --dport 443 -j SNAT --to-source 204.80.128.1
+```
+
+</details>
 
 ## Example Test
 
