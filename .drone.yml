@@ -1,0 +1,21 @@
+kind: pipeline
+name: default
+
+steps:
+- name: docker publish
+  image: plugins/docker
+  settings:
+    username: laduker
+    password:
+      from_secret: dockerhub_token
+    repo: zerotier/pylon
+    tags:
+    - latest
+    - ${DRONE_TAG##v}
+    ssh-agent-key:
+      from_secret: private_key
+  when:
+    branch:
+      - main
+    event:
+      - tag
