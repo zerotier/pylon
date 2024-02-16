@@ -12,6 +12,28 @@ Currently you must build it and distribute it to your server manually. The build
 make
 ```
 
+## Docker
+We have docker images available if you prefer. 
+
+
+### reflect
+``` sh
+docker run --init -p 9443:443 -p 19993:9993/udp zerotier/pylon:latest \
+reflect
+```
+
+See below for configuring zerotier-one to use your `reflect` as a tcp-relay.
+
+### refract
+
+``` sh
+docker run --init -e ZT_PYLON_SECRET_KEY=$(cat identity.secret) -e ZT_PYLON_WHITELISTED_PORT=4545 \
+--net=host --cap-add NET_ADMIN \
+zerotier/pylon refract 6ab565387a111111 --listen-addr 0.0.0.0 --listen-port 1080
+```
+
+See [Usage] for more info on the commands.
+
 ## Usage
 
 Pylon can be run as one of two personalities that can work alone or together depending on your needs:
@@ -122,3 +144,10 @@ pylon-debug
 ## Limitations
 
 While a single Pylon instance will work for multiple networks and multiple applications simultaneously it will perform better if a new instance is started for each proxied network. The underlying [libzt]() isn't multithreaded so it is recommended that you also split your proxied traffic across multiple instances if you notice performance bottlecks. Finally, Pylon only supports IPv4 TCP but IPv6 and UDP support can be added if there is sufficient interest.
+
+## Releasing
+
+Releasing to Docker Hub is done from our internal CI. 
+- create a tag on `main`: `git tag v0.1.7`
+- push the tag: `git push --tags` This triggers the build and push to dockerhub. 
+- create a Github Release through the Github ui. Select the tag you just pushed. 
