@@ -2,8 +2,6 @@
 
 Easily tunnel traffic to and from your LAN and ZeroTier Virtual Network using an SOCKS5 proxy (includes an optional TCP relay for use behind difficult NATs)
 
-![Build](https://github.com/zerotier/pylon/actions/workflows/build.yml/badge.svg?branch=main)
-
 ## Build
 
 Currently you must build it and distribute it to your server manually. The build process will pull a submodule (which itself pulls submodules), build libzt there, and then link pylon against the resultant `libzt.a` static library. Requires `clang`, and `cmake` to build.
