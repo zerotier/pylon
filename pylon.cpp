@@ -1083,7 +1083,7 @@ struct TcpProxyService {
     }
 };
 
-int reflect(int argc, char** argv)
+int reflect(int argc, char** argv, unsigned short port = ZT_TCP_PROXY_TCP_PORT)
 {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
@@ -1098,9 +1098,9 @@ int reflect(int argc, char** argv)
         struct sockaddr_in laddr;
         memset(&laddr, 0, sizeof(laddr));
         laddr.sin_family = AF_INET;
-        laddr.sin_port = htons(ZT_TCP_PROXY_TCP_PORT);
+        laddr.sin_port = htons(port);
         if (! phy.tcpListen((const struct sockaddr*)&laddr)) {
-            fprintf(stderr, "%s: fatal error: unable to bind TCP port %d\n", argv[0], ZT_TCP_PROXY_TCP_PORT);
+            fprintf(stderr, "%s: fatal error: unable to bind TCP port %d\n", argv[0], port);
             return 1;
         }
     }
@@ -1152,6 +1152,21 @@ int main(int argc, char** argv)
         reflect(argc, argv);
         exit(0);
     }
+    if (argc == 4) {
+        // In this mode, pylon reflect will use a custom port
+        if (strcmp(argv[1], "reflect")) {
+            fprintf(stderr, "Invalid mode. Specify either [pylon reflect] or [pylon refract]\n");
+            exit(0);
+        }
+        if (strcmp(argv[2], "--port")) {
+            fprintf(stderr, "Invalid configuration. Specify a port with --port\n");
+            exit(0);
+        }
+        unsigned short port = (unsigned short)atoi(argv[3]);
+        fprintf(stderr, "Relaying ZeroTier traffic on port %d\n", port);
+        reflect(argc, argv, port);
+        exit(0);
+    }
 
     PylonMode mode = PylonMode::Invalid;
 
@@ -1200,6 +1215,8 @@ int main(int argc, char** argv)
 
     if (mode == PylonMode::Invalid) {
         fprintf(stderr, "\nUsage:\n\n");
+        fprintf(stderr, "pylon reflect [--port 443]\n");
+        fprintf(stderr, "pylon refract <net_id> --listen-addr 0.0.0.0 --listen-port 1080\n");
         fprintf(stderr, "pylon refract <net_id> --listen-addr 0.0.0.0 --listen-port 1080 --relay-addr 1.2.3.4 --relay-port 443\n");
         exit(0);
     }
@@ -1244,9 +1261,11 @@ int main(int argc, char** argv)
     zts_init_set_event_handler(&on_zts_event);
 
     char* tcp_relay_addr = (char*)"0.0.0.0";
-    unsigned short tcp_relay_port = 443;
+    unsigned short tcp_relay_port = ZT_TCP_PROXY_TCP_PORT;
 
     if (mode == PylonMode::Relayed) {
+        tcp_relay_addr = argv[8];
+        tcp_relay_port = (unsigned short)atoi(argv[10]);
         LOG_WARN("Configuring Pylon to use relay: %s:%d", tcp_relay_addr, tcp_relay_port);
         zts_init_allow_tcp_relay(1);
         zts_init_force_tcp_relay(1);
